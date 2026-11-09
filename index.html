@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Othello</title>
+    <!-- Tailwind CSS for layout and utility classes -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <style>
+        /* Custom Styles for Game Board and 3D Animations */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0f172a; /* Tailwind slate-900 */
+            color: #f8fafc;
+            margin: 0;
+            overflow-x: hidden;
+        }
+
+        .board-container {
+            width: 100%;
+            max-width: 600px;
+            aspect-ratio: 1 / 1;
+            margin: 0 auto;
+            /* Sleek dark border acting as the board's frame */
+            background-color: #1a1a1a;
+            padding: 8px;
+            border-radius: 16px;
+            box-shadow: 
+                0 25px 50px -12px rgba(0, 0, 0, 0.7),
+                inset 0 0 10px rgba(255,255,255,0.1);
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            grid-template-rows: repeat(8, 1fr);
+            gap: 4px; /* Creates the grid lines */
+            background-color: #111; /* Color of the grid lines */
+            width: 100%;
+            height: 100%;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .cell {
+            /* Rich green felt-like gradient */
+            background: radial-gradient(circle at center, #2e8b57 0%, #1c5e37 100%);
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: filter 0.2s;
+        }
+
+        .cell:hover {
+            filter: brightness(1.1);
+        }
+
+        /* 3D Disc Container */
+        .disc-wrapper {
+            width: 85%;
+            height: 85%;
+            perspective: 800px; /* Gives the 3D depth to the flip */
+            pointer-events: none; /* Let clicks pass through to the cell */
+            position: relative;
+            z-index: 10;
+        }
+
+        /* The rotating disc */
+        .disc {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            /* Smooth spring-like transition for flipping */
+            transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1);
+            transform: scale(0); /* Hidden by default */
+            opacity: 0;
+        }
+
+        /* Active states for discs */
+        .disc.show {
+            transform: scale(1) rotateY(0deg);
+            opacity: 1;
+        }
+
+        .disc.is-black {
+            transform: scale(1) rotateY(0deg);
+        }
+
+        .disc.is-white {
+            transform: scale(1) rotateY(180deg);
+        }
+
+        /* The two faces of the disc */
+        .face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            backface-visibility: hidden; /* Hide the back when rotated */
+        }
+
+        /* Black Face */
+        .face.front-black {
+            background: radial-gradient(circle at 30% 30%, #444, #0a0a0a);
+            box-shadow: 
+                inset 2px 2px 4px rgba(255,255,255,0.2),
+                inset -4px -4px 8px rgba(0,0,0,0.8),
+                2px 4px 6px rgba(0,0,0,0.5);
+            transform: rotateY(0deg);
+        }
+
+        /* White Face */
+        .face.back-white {
+            background: radial-gradient(circle at 30% 30%, #ffffff, #d4d4d4);
+            box-shadow: 
+                inset 2px 2px 4px rgba(255,255,255,0.8),
+                inset -4px -4px 8px rgba(0,0,0,0.2),
+                2px 4px 6px rgba(0,0,0,0.5);
+            transform: rotateY(180deg);
+        }
+
+        /* Valid Move Indicator */
+        .valid-move {
+            position: absolute;
+            width: 25%;
+            height: 25%;
+            border-radius: 50%;
+            background-color: rgba(0, 0, 0, 0.25);
+            pointer-events: none;
+            transition: all 0.2s;
+            opacity: 0;
+            transform: scale(0);
+        }
+
+        .cell:hover .valid-move.active {
+            background-color: rgba(255, 255, 255, 0.4);
+            transform: scale(1.2);
+        }
+
+        .valid-move.active {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        /* UI Animations */
+        .active-player-glow {
+            box-shadow: 0 0 15px 2px rgba(74, 222, 128, 0.5);
+            border-color: #4ade80 !important;
+        }
+
+        .modal-enter {
+            animation: modalFadeIn 0.4s ease-out forwards;
+        }
+
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: translateY(20px) scale(0.95); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .toast-enter {
+            animation: toastSlideDown 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        
+        .toast-leave {
+            animation: toastSlideUp 0.4s ease-in forwards;
+        }
+
+        @keyframes toastSlideDown {
+            from { transform: translate(-50%, -150%); opacity: 0; }
+            to { transform: translate(-50%, 0); opacity: 1; }
+        }
+
+        @keyframes toastSlideUp {
+            from { transform: translate(-50%, 0); opacity: 1; }
+            to { transform: translate(-50%, -150%); opacity: 0; }
+        }
+    </style>
+</head>
+<body class="flex flex-col min-h-screen">
+
+    <!-- Toast Notification (for skipping turns) -->
+    <div id="toast" class="fixed top-6 left-1/2 -translate-x-1/2 bg-slate-800 border border-slate-600 text-white px-6 py-3 rounded-full shadow-lg z-50 hidden opacity-0">
+        <span id="toast-message">No valid moves. Turn skipped.</span>
+    </div>
+
+    <!-- Main Container -->
+    <main class="flex-grow flex flex-col items-center justify-center p-4 sm:p-8 w-full max-w-4xl mx-auto">
+        
+        <!-- Header & Scoreboard -->
+        <header class="w-full max-w-[600px] flex flex-col sm:flex-row justify-between items-center mb-8 gap-6">
+            <div class="text-center sm:text-left">
+                <h1 class="text-4xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">
+                    Othello
+                </h1>
+                <p class="text-slate-400 text-sm mt-1 font-medium tracking-wide uppercase">Reversi</p>
+            </div>
+
+            <!-- Score Dashboard -->
+            <div class="flex gap-4 items-center bg-slate-800/50 p-2 rounded-2xl border border-slate-700/50">
+                <!-- Black Player -->
+                <div id="player-black-card" class="flex flex-col items-center justify-center px-4 py-2 rounded-xl border-2 border-transparent transition-all duration-300">
+                    <div class="w-8 h-8 rounded-full bg-gradient-to-br from-gray-700 to-black shadow-inner border border-gray-600 mb-1"></div>
+                    <span class="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">Black</span>
+                    <span id="score-black" class="text-2xl font-bold text-white leading-none">2</span>
+                </div>
+                
+                <div class="w-px h-12 bg-slate-700"></div> <!-- Divider -->
+
+                <!-- White Player -->
+                <div id="player-white-card" class="flex flex-col items-center justify-center px-4 py-2 rounded-xl border-2 border-transparent transition-all duration-300">
+                    <div class="w-8 h-8 rounded-full bg-gradient-to-br from-white to-gray-300 shadow-inner border border-gray-400 mb-1"></div>
+                    <span class="text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">White (AI)</span>
+                    <span id="score-white" class="text-2xl font-bold text-white leading-none">2</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Game Board -->
+        <div class="board-container relative">
+            <!-- Block interactions during animations/game over -->
+            <div id="board-overlay" class="absolute inset-0 z-20 hidden"></div>
+            <div id="board" class="board">
+                <!-- Cells injected by JavaScript -->
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Game Over Modal -->
+    <div id="game-over-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-3xl p-8 max-w-sm w-full shadow-2xl text-center">
+            <h2 class="text-3xl font-bold text-white mb-2" id="winner-title">Game Over</h2>
+            <p class="text-slate-400 mb-6" id="winner-subtitle">Black wins by 12 points!</p>
+            
+            <div class="flex justify-center gap-6 mb-8">
+                <div class="text-center">
+                    <div class="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-gray-700 to-black shadow-inner border border-gray-600 mb-2"></div>
+                    <span class="block text-xl font-bold text-white" id="final-score-black">38</span>
+                </div>
+                <div class="text-center">
+                    <div class="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-white to-gray-300 shadow-inner border border-gray-400 mb-2"></div>
+                    <span class="block text-xl font-bold text-white" id="final-score-white">26</span>
+                </div>
+            </div>
+
+            <button onclick="Game.restart()" class="w-full bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-white font-bold py-3 px-6 rounded-xl transition-all transform hover:scale-105 active:scale-95 shadow-lg">
+                Play Again
+            </button>
+        </div>
+    </div>
+
+    <!-- JavaScript Logic -->
+    <script>
+        /**
+         * Reversi (Othello) Game Engine and UI Controller
+         */
+        const Game = (() => {
+            // Constants
+            const BOARD_SIZE = 8;
+            const EMPTY = 0;
+            const BLACK = 1;
+            const WHITE = 2;
+
+            // Directions for checking flips (row_delta, col_delta)
+            const DIRECTIONS = [
+                [-1, -1], [-1, 0], [-1, 1], // Top-Left, Top, Top-Right
+                [0, -1],           [0, 1],  // Left, Right
+                [1, -1],  [1, 0],  [1, 1]   // Bottom-Left, Bottom, Bottom-Right
+            ];
+
+            // State
+            let board = [];
+            let currentPlayer = BLACK;
+            let currentValidMoves = {}; // Map of "row,col" -> array of piece coordinates to flip
+            let isAnimating = false;
+
+            // DOM Elements
+            const boardEl = document.getElementById('board');
+            const scoreBlackEl = document.getElementById('score-black');
+            const scoreWhiteEl = document.getElementById('score-white');
+            const playerBlackCard = document.getElementById('player-black-card');
+            const playerWhiteCard = document.getElementById('player-white-card');
+            const boardOverlay = document.getElementById('board-overlay');
+            const gameOverModal = document.getElementById('game-over-modal');
+            const toastEl = document.getElementById('toast');
+            const toastMessageEl = document.getElementById('toast-message');
+
+            /**
+             * Initialize the game board logic array
+             */
+            const initBoardLogic = () => {
+                board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
+                // Initial 4 pieces in the center
+                board[3][3] = WHITE;
+                board[3][4] = BLACK;
+                board[4][3] = BLACK;
+                board[4][4] = WHITE;
+            };
+
+            /**
+             * Build the initial DOM structure for the board (64 cells)
+             * We create elements once and update their classes for performance and animation.
+             */
+            const buildBoardDOM = () => {
+                boardEl.innerHTML = '';
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    for (let c = 0; c < BOARD_SIZE; c++) {
+                        const cell = document.createElement('div');
+                        cell.className = 'cell';
+                        cell.dataset.row = r;
+                        cell.dataset.col = c;
+                        
+                        // Valid move indicator
+                        const indicator = document.createElement('div');
+                        indicator.className = 'valid-move';
+                        indicator.id = `indicator-${r}-${c}`;
+                        cell.appendChild(indicator);
+
+                        // 3D Disc container
+                        const discWrapper = document.createElement('div');
+                        discWrapper.className = 'disc-wrapper';
+                        
+                        const disc = document.createElement('div');
+                        disc.className = 'disc';
+                        disc.id = `disc-${r}-${c}`;
+                        
+                        // Front face (Black)
+                        const faceBlack = document.createElement('div');
+                        faceBlack.className = 'face front-black';
+                        
+                        // Back face (White)
+                        const faceWhite = document.createElement('div');
+                        faceWhite.className = 'face back-white';
+
+                        disc.appendChild(faceBlack);
+                        disc.appendChild(faceWhite);
+                        discWrapper.appendChild(disc);
+                        cell.appendChild(discWrapper);
+
+                        // Event Listener for placing a piece
+                        cell.addEventListener('click', () => handleCellClick(r, c, true));
+
+                        boardEl.appendChild(cell);
+                    }
+                }
+            };
+
+            /**
+             * Check valid moves for a given player
+             * @param {number} player 
+             * @returns {Object} Dictionary of valid moves and the pieces they would flip
+             */
+            const calculateValidMoves = (player) => {
+                const moves = {};
+                const opponent = player === BLACK ? WHITE : BLACK;
+
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    for (let c = 0; c < BOARD_SIZE; c++) {
+                        if (board[r][c] !== EMPTY) continue; // Cell must be empty
+
+                        let piecesToFlip = [];
+
+                        // Check all 8 directions
+                        for (let [dr, dc] of DIRECTIONS) {
+                            let tempFlips = [];
+                            let nr = r + dr;
+                            let nc = c + dc;
+
+                            // Walk in the direction while finding opponent pieces
+                            while (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === opponent) {
+                                tempFlips.push([nr, nc]);
+                                nr += dr;
+                                nc += dc;
+                            }
+
+                            // If we ended up on our own piece after finding opponent pieces, it's a valid flank
+                            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === player && tempFlips.length > 0) {
+                                piecesToFlip.push(...tempFlips);
+                            }
+                        }
+
+                        if (piecesToFlip.length > 0) {
+                            moves[`${r},${c}`] = piecesToFlip;
+                        }
+                    }
+                }
+                return moves;
+            };
+
+            /**
+             * Update the visual representation of the board based on the logic array
+             */
+            const updateBoardVisuals = () => {
+                let countBlack = 0;
+                let countWhite = 0;
+
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    for (let c = 0; c < BOARD_SIZE; c++) {
+                        const cellValue = board[r][c];
+                        const disc = document.getElementById(`disc-${r}-${c}`);
+                        const indicator = document.getElementById(`indicator-${r}-${c}`);
+                        
+                        // Update score counters
+                        if (cellValue === BLACK) countBlack++;
+                        if (cellValue === WHITE) countWhite++;
+
+                        // Handle Disc appearance and flipping
+                        if (cellValue !== EMPTY) {
+                            // Ensure it's visible
+                            if (!disc.classList.contains('show')) {
+                                disc.classList.add('show');
+                            }
+                            
+                            // Apply rotation based on color
+                            if (cellValue === BLACK) {
+                                disc.classList.remove('is-white');
+                                disc.classList.add('is-black');
+                            } else {
+                                disc.classList.remove('is-black');
+                                disc.classList.add('is-white');
+                            }
+                        }
+
+                        // Handle valid move indicators
+                        const moveKey = `${r},${c}`;
+                        if (currentValidMoves[moveKey] && !isAnimating) {
+                            indicator.classList.add('active');
+                        } else {
+                            indicator.classList.remove('active');
+                        }
+                    }
+                }
+
+                // Update Scores in UI
+                scoreBlackEl.textContent = countBlack;
+                scoreWhiteEl.textContent = countWhite;
+            };
+
+            /**
+             * Update UI to show whose turn it is
+             */
+            const updateTurnIndicator = () => {
+                if (currentPlayer === BLACK) {
+                    playerBlackCard.classList.add('active-player-glow');
+                    playerWhiteCard.classList.remove('active-player-glow');
+                    playerWhiteCard.classList.add('opacity-50');
+                    playerBlackCard.classList.remove('opacity-50');
+                } else {
+                    playerWhiteCard.classList.add('active-player-glow');
+                    playerBlackCard.classList.remove('active-player-glow');
+                    playerBlackCard.classList.add('opacity-50');
+                    playerWhiteCard.classList.remove('opacity-50');
+                }
+            };
+
+            /**
+             * Handle a user clicking a cell
+             */
+            const handleCellClick = (r, c, isPlayer = false) => {
+                if (isAnimating) return;
+                // Prevent human player from moving during AI's turn
+                if (isPlayer && currentPlayer !== BLACK) return;
+
+                const moveKey = `${r},${c}`;
+                const flips = currentValidMoves[moveKey];
+
+                if (!flips) return; // Invalid move
+
+                // Execute move
+                isAnimating = true;
+                boardOverlay.classList.remove('hidden'); // Block input
+                
+                // Place the new piece
+                board[r][c] = currentPlayer;
+                const placedDisc = document.getElementById(`disc-${r}-${c}`);
+                placedDisc.classList.add('show');
+                placedDisc.classList.add(currentPlayer === BLACK ? 'is-black' : 'is-white');
+
+                // Clear all indicators immediately
+                currentValidMoves = {};
+                updateBoardVisuals(); 
+
+                // Animate flips with a slight staggering effect for visual richness
+                flips.forEach(([fr, fc], index) => {
+                    setTimeout(() => {
+                        board[fr][fc] = currentPlayer;
+                        const discToFlip = document.getElementById(`disc-${fr}-${fc}`);
+                        if (currentPlayer === BLACK) {
+                            discToFlip.classList.remove('is-white');
+                            discToFlip.classList.add('is-black');
+                        } else {
+                            discToFlip.classList.remove('is-black');
+                            discToFlip.classList.add('is-white');
+                        }
+                    }, 50 + (index * 80)); // Stagger delay
+                });
+
+                // Calculate total animation time before proceeding to next turn
+                const maxDelay = 50 + (flips.length * 80) + 600; // staggering + transition duration
+
+                setTimeout(() => {
+                    finalizeTurn();
+                }, maxDelay);
+            };
+
+            /**
+             * Finalize the turn, check for passes or game over
+             */
+            const finalizeTurn = () => {
+                // Switch player
+                currentPlayer = currentPlayer === BLACK ? WHITE : BLACK;
+                
+                // Check if new player has valid moves
+                currentValidMoves = calculateValidMoves(currentPlayer);
+                
+                if (Object.keys(currentValidMoves).length === 0) {
+                    // Current player has no moves. Does the opponent?
+                    const opponent = currentPlayer === BLACK ? WHITE : BLACK;
+                    const opponentMoves = calculateValidMoves(opponent);
+
+                    if (Object.keys(opponentMoves).length === 0) {
+                        // Neither player has moves. Game Over.
+                        updateBoardVisuals();
+                        endGame();
+                        return;
+                    } else {
+                        // Current player passes
+                        showToast(`${currentPlayer === BLACK ? 'Black' : 'White'} has no moves. Turn skipped.`);
+                        currentPlayer = opponent;
+                        currentValidMoves = opponentMoves;
+                    }
+                }
+
+                // Cleanup and setup for next turn
+                isAnimating = false;
+                boardOverlay.classList.add('hidden');
+                updateTurnIndicator();
+                updateBoardVisuals();
+
+                // Trigger AI if it's White's turn
+                if (currentPlayer === WHITE) {
+                    boardOverlay.classList.remove('hidden'); // Block input
+                    setTimeout(makeAIMove, 800); // Artificial delay for realism
+                }
+            };
+
+            /**
+             * Determine and execute the AI's move
+             */
+            const makeAIMove = () => {
+                if (currentPlayer !== WHITE) return;
+
+                const moves = Object.keys(currentValidMoves);
+                if (moves.length === 0) return;
+
+                let bestMove = moves[0];
+                let maxScore = -Infinity;
+
+                // Evaluation matrix prioritizing corners and avoiding spaces next to corners
+                const BOARD_WEIGHTS = [
+                    [ 100, -20,  10,   5,   5,  10, -20, 100],
+                    [ -20, -50,  -2,  -2,  -2,  -2, -50, -20],
+                    [  10,  -2,   1,   1,   1,   1,  -2,  10],
+                    [   5,  -2,   1,   1,   1,   1,  -2,   5],
+                    [   5,  -2,   1,   1,   1,   1,  -2,   5],
+                    [  10,  -2,   1,   1,   1,   1,  -2,  10],
+                    [ -20, -50,  -2,  -2,  -2,  -2, -50, -20],
+                    [ 100, -20,  10,   5,   5,  10, -20, 100]
+                ];
+
+                for (let move of moves) {
+                    const [r, c] = move.split(',').map(Number);
+                    // Base score from position weight + number of flips
+                    let score = BOARD_WEIGHTS[r][c] + currentValidMoves[move].length;
+                    
+                    if (score > maxScore) {
+                        maxScore = score;
+                        bestMove = move;
+                    }
+                }
+
+                const [bestR, bestC] = bestMove.split(',').map(Number);
+                handleCellClick(bestR, bestC, false);
+            };
+
+            /**
+             * Display a temporary toast notification
+             */
+            const showToast = (message) => {
+                toastMessageEl.textContent = message;
+                toastEl.classList.remove('hidden');
+                toastEl.classList.add('toast-enter');
+                
+                setTimeout(() => {
+                    toastEl.classList.remove('toast-enter');
+                    toastEl.classList.add('toast-leave');
+                    setTimeout(() => {
+                        toastEl.classList.add('hidden');
+                        toastEl.classList.remove('toast-leave');
+                    }, 400); // match animation duration
+                }, 3000);
+            };
+
+            /**
+             * Handle end of game scenario
+             */
+            const endGame = () => {
+                isAnimating = false;
+                boardOverlay.classList.remove('hidden');
+
+                let countBlack = 0;
+                let countWhite = 0;
+                for (let r = 0; r < BOARD_SIZE; r++) {
+                    for (let c = 0; c < BOARD_SIZE; c++) {
+                        if (board[r][c] === BLACK) countBlack++;
+                        if (board[r][c] === WHITE) countWhite++;
+                    }
+                }
+
+                const finalScoreBlack = document.getElementById('final-score-black');
+                const finalScoreWhite = document.getElementById('final-score-white');
+                const title = document.getElementById('winner-title');
+                const subtitle = document.getElementById('winner-subtitle');
+
+                finalScoreBlack.textContent = countBlack;
+                finalScoreWhite.textContent = countWhite;
+
+                if (countBlack > countWhite) {
+                    title.textContent = "Black Wins!";
+                    title.className = "text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-gray-500 to-gray-200 mb-2";
+                    subtitle.textContent = `Black beat White by ${countBlack - countWhite} points.`;
+                } else if (countWhite > countBlack) {
+                    title.textContent = "White Wins!";
+                    title.className = "text-4xl font-extrabold text-white mb-2";
+                    subtitle.textContent = `White beat Black by ${countWhite - countBlack} points.`;
+                } else {
+                    title.textContent = "It's a Tie!";
+                    title.className = "text-4xl font-extrabold text-emerald-400 mb-2";
+                    subtitle.textContent = "Both players scored equally.";
+                }
+
+                gameOverModal.classList.remove('hidden');
+                gameOverModal.children[0].classList.add('modal-enter');
+            };
+
+            /**
+             * Restart the game to initial state
+             */
+            const restart = () => {
+                gameOverModal.classList.add('hidden');
+                gameOverModal.children[0].classList.remove('modal-enter');
+                boardOverlay.classList.add('hidden');
+                isAnimating = false;
+                
+                initBoardLogic();
+                // Reset visual discs quickly to hidden state to prepare for animation
+                const discs = document.querySelectorAll('.disc');
+                discs.forEach(d => {
+                    d.style.transition = 'none'; // Disable transition for instant hide
+                    d.classList.remove('show', 'is-black', 'is-white');
+                    // Force reflow
+                    void d.offsetWidth; 
+                    d.style.transition = ''; // Restore transition
+                });
+
+                currentPlayer = BLACK;
+                currentValidMoves = calculateValidMoves(currentPlayer);
+                
+                updateTurnIndicator();
+                
+                // Slight delay to allow pieces to hide before showing initial 4 pieces
+                setTimeout(() => {
+                    updateBoardVisuals();
+                }, 100);
+            };
+
+            /**
+             * Initial Boot
+             */
+            const init = () => {
+                initBoardLogic();
+                buildBoardDOM();
+                currentPlayer = BLACK;
+                currentValidMoves = calculateValidMoves(currentPlayer);
+                updateTurnIndicator();
+                
+                // Allow a small delay on initial load for a smooth pop-in of pieces
+                setTimeout(() => {
+                    updateBoardVisuals();
+                }, 100);
+            };
+
+            // Public API
+            return {
+                init,
+                restart
+            };
+        })();
+
+        // Start the game when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            Game.init();
+        });
+    </script>
+</body>
+</html>
