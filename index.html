@@ -47,6 +47,8 @@
         .cell {
             /* Rich green felt-like gradient */
             background: radial-gradient(circle at center, #2e8b57 0%, #1c5e37 100%);
+            border: 0;
+            padding: 0;
             position: relative;
             display: flex;
             justify-content: center;
@@ -57,6 +59,11 @@
 
         .cell:hover {
             filter: brightness(1.1);
+        }
+
+        .cell:focus-visible {
+            outline: 3px solid #facc15;
+            outline-offset: -3px;
         }
 
         /* 3D Disc Container */
@@ -310,7 +317,9 @@
                 boardEl.innerHTML = '';
                 for (let r = 0; r < BOARD_SIZE; r++) {
                     for (let c = 0; c < BOARD_SIZE; c++) {
-                        const cell = document.createElement('div');
+                        const cell = document.createElement('button');
+                        cell.type = 'button';
+                        cell.disabled = true;
                         cell.className = 'cell';
                         cell.dataset.row = r;
                         cell.dataset.col = c;
@@ -428,6 +437,11 @@
 
                         // Handle valid move indicators
                         const moveKey = `${r},${c}`;
+                        const cell = indicator.parentElement;
+                        const isPlayable = currentPlayer === BLACK && !isAnimating && !!currentValidMoves[moveKey];
+                        const pieceName = cellValue === EMPTY ? 'empty' : cellValue === BLACK ? 'black piece' : 'white piece';
+                        cell.disabled = !isPlayable;
+                        cell.setAttribute('aria-label', `Row ${r + 1}, column ${c + 1}: ${pieceName}${isPlayable ? ', legal move' : ''}`);
                         if (currentValidMoves[moveKey] && !isAnimating) {
                             indicator.classList.add('active');
                         } else {
